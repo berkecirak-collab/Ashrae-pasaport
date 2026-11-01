@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASHRAE Turkish Chapter - Dijital Sergi Pasaportu</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <!-- Kamera QR Tarayıcı -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- Masa QR Üretici -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- Supabase İstemci Kütüphanesi -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
+  <style>
+    :root {
+      --ashrae-navy: #004b87;
+      --ashrae-header: #003865;
+      --lego-yellow: #ffb81c;
+      --lego-dots: #cbd5e1;
+      --bg-light: #f1f5f9;
+    }
+    body {
+      background-color: var(--bg-light);
+      background-image: radial-gradient(var(--lego-dots) 18%, transparent 19%);
+      background-size: 20px 20px;
+      color: #1e293b;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    @keyframes stamp-slam {
+      0% { transform: scale(3) rotate(-20deg); opacity: 0; }
+      50% { transform: scale(0.9) rotate(3deg); opacity: 1; }
+      75% { transform: scale(1.05) rotate(-2deg); }
+      100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    .animate-stamp {
+      animation: stamp-slam 0.32s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+    .lego-stud-light {
+      background: radial-gradient(circle at 35% 35%, #ffffff 0%, #cbd5e1 75%);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.12), inset 0 1px 1px #ffffff;
+    }
+    .passport-border {
+      border: 2px dashed #94a3b8;
+    }
+  </style>
+</head>
+<body class="min-h-screen pb-14">
+
+  <!-- Üst Bar -->
+  <header class="bg-[#003865] border-b-4 border-[#ffb81c] sticky top-0 z-40 px-4 py-3 shadow-md">
+    <div class="max-w-md mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-2.5 select-none">
+        
+        <!-- Sol Üst Logo (3 Tıkla Admin Girişi) -->
+        <div id="maktekLogoBtn" onclick="handleAdminTriggerClick()" class="w-10 h-10 rounded-xl bg-[#ffb81c] flex items-center justify-center shadow-inner cursor-pointer active:scale-95 transition-transform overflow-hidden p-1" title="Admin İçin 3 Tık">
+          <img id="headerMaktekLogo" src="maktek-logo.png" onerror="this.style.display='none'; document.getElementById('fallbackIcon').style.display='block';" class="w-full h-full object-contain" alt="MAKTEK" />
+          <svg id="fallbackIcon" class="w-6 h-6 text-[#003865]" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M5 3h4a2 2 0 0 1 2 2v2H7V5H5v14h2v-2h4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm14 0a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2h4v2h2V5h-2v2h-4V5a2 2 0 0 1 2-2h4z"/>
+          </svg>
+        </div>
+
+        <div>
+          <div class="flex items-center space-x-1.5">
+            <span class="bg-[#ffb81c] text-[#003865] font-black text-[9px] px-1.5 py-0.5 rounded leading-none">ASHRAE</span>
+            <span class="text-white text-[10px] font-bold tracking-tight">Turkish Chapter</span>
+          </div>
+          <h1 class="text-xs font-black text-white tracking-wide mt-0.5">Dijital Sergi Pasaportu</h1>
+        </div>
+      </div>
+
+      <div id="userBadge" class="hidden text-right">
+        <span id="userNameDisplay" class="text-xs font-bold text-[#ffb81c] block truncate max-w-[110px]"></span>
+        <span id="stampScoreDisplay" class="text-[10px] bg-white text-[#003865] px-2 py-0.5 rounded-full font-black shadow-sm">0 / 8 Kaşe</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-md mx-auto px-4 mt-4">
+
+    <!-- 1. ADIM: Kayıt Ekranı -->
+    <section id="authSection" class="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 relative overflow-hidden">
+      <div class="w-12 h-1.5 bg-[#ffb81c] mx-auto rounded-full mb-4"></div>
+      <h2 class="text-base font-black text-slate-800 text-center mb-1">Fuar Pasaportuna Hoş Geldiniz</h2>
+      <p class="text-xs text-slate-500 text-center mb-5 leading-relaxed">
+        Stantlardaki QR kodları okutarak sergi pasaportunuzu doldurun, tüm ziyaretleri tamamlayıp resmi katılım sertifikanızı alın.
+      </p>
+
+      <form id="regForm" onsubmit="handleRegister(event)" class="space-y-3.5">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Adınız Soyadınız</label>
+          <input type="text" id="regName" required placeholder="Örn: Ahmet Yılmaz" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-[#004b87] focus:bg-white font-medium" />
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">E-Posta Adresiniz</label>
+          <input type="email" id="regEmail" required placeholder="ornek@yildiz.edu.tr" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-[#004b87] focus:bg-white font-medium" />
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Kurum / Üniversite / Şirket</label>
+          <input type="text" id="regOrg" placeholder="Örn: YTÜ Makine Mühendisliği" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-[#004b87] focus:bg-white font-medium" />
+        </div>
+        <button id="regSubmitBtn" type="submit" class="w-full bg-[#004b87] hover:bg-[#003865] text-white font-black py-3 rounded-xl shadow-lg transition-all text-xs tracking-wider uppercase mt-2">
+          Pasaportu Başlat
+        </button>
+      </form>
+    </section>
+
+    <!-- 2. ADIM: Pasaport Kapağı -->
+    <section id="coverSection" class="hidden">
+      <div class="bg-white rounded-3xl p-6 shadow-xl border-4 border-slate-200 passport-border text-center space-y-5">
+        <div>
+          <span class="text-[9px] tracking-widest text-[#004b87] font-black uppercase block">ASHRAE TURKISH CHAPTER</span>
+          <h2 class="text-lg font-black text-slate-800 tracking-wider uppercase mt-1">SERGİ PASAPORTU</h2>
+          <p class="text-[10px] text-slate-500 font-medium">Mühendislik & İklimlendirme Fuarı</p>
+        </div>
+
+        <div class="w-28 h-28 mx-auto rounded-2xl bg-slate-50 border-2 border-dashed border-[#ffb81c] flex flex-col items-center justify-center p-2 shadow-inner">
+          <img id="coverCenterLogo" src="maktek-center.png" onerror="this.style.display='none'; document.getElementById('coverFallback').style.display='flex';" class="w-16 h-16 object-contain" alt="Logo" />
+          <div id="coverFallback" class="flex flex-col items-center justify-center">
+            <div class="w-12 h-12 rounded-xl bg-[#003865] flex items-center justify-center mb-1 shadow">
+              <span class="text-[#ffb81c] font-black text-xs">ASHRAE</span>
+            </div>
+            <span class="text-[9px] font-bold text-slate-700 font-mono">YTÜ MAKTEK</span>
+          </div>
+        </div>
+
+        <div class="bg-slate-50 rounded-xl p-3 border border-slate-200 max-w-xs mx-auto">
+          <span class="text-[9px] text-slate-500 block uppercase font-bold">Pasaport Sahibi</span>
+          <span id="coverUserName" class="text-xs font-black text-slate-800 block truncate"></span>
+          <span id="coverUserOrg" class="text-[10px] text-[#004b87] font-bold block truncate"></span>
+        </div>
+
+        <button onclick="openPassportPages()" class="w-full bg-[#ffb81c] hover:bg-[#e5a312] text-[#003865] font-black py-3 rounded-xl shadow-md text-xs tracking-wider uppercase transition-all">
+          📖 Pasaportu Aç
+        </button>
+      </div>
+    </section>
+
+    <!-- 3. ADIM: Pasaport İç Sayfası (Lego Grid) -->
+    <section id="passportSection" class="hidden space-y-3.5">
+      <div class="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm flex items-center justify-between">
+        <div>
+          <span class="text-[10px] font-bold text-slate-500 block uppercase">Ziyaret Durumu</span>
+          <span id="progressText" class="text-xs font-black text-slate-800">0 stant ziyaret edildi</span>
+        </div>
+        <button onclick="startCameraScanner()" class="bg-[#004b87] hover:bg-[#003865] text-white px-3.5 py-2 rounded-xl font-bold text-xs flex items-center space-x-1.5 shadow-md active:scale-95 transition-transform">
+          <svg class="w-4 h-4 text-[#ffb81c]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 7V5a2 2 0 012-2h2m10 0h2a2 2 0 012 2v2m0 10v2a2 2 0 01-2 2h-2m-10 0H5a2 2 0 01-2-2v-2"></path></svg>
+          <span>QR Okut</span>
+        </button>
+      </div>
+
+      <div id="boothGrid" class="grid grid-cols-2 gap-3"></div>
+
+      <div id="certCard" class="hidden bg-white border-2 border-emerald-500 rounded-2xl p-4 text-center shadow-lg">
+        <h3 class="text-xs font-black text-slate-800 mb-1">🎉 Tüm Stantlar Tamamlandı!</h3>
+        <p class="text-[11px] text-slate-500 mb-3">Resmi ASHRAE Katılım Sertifikanız oluşturuldu.</p>
+        <button onclick="showCertificateModal()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 rounded-xl shadow text-xs tracking-wider uppercase">
+          Sertifikamı Görüntüle
+        </button>
+      </div>
+    </section>
+
+    <!-- 4. ADIM: Yönetici Paneli -->
+    <section id="adminSection" class="hidden space-y-3.5">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <span class="text-xs font-black text-slate-800 uppercase tracking-wider">Yönetici Paneli</span>
+          <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">Bulut Aktif</span>
+        </div>
+        <div class="space-x-1">
+          <button onclick="loadAdminStats()" class="text-xs bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg text-slate-700 font-bold">🔄 Yenile</button>
+          <button onclick="closeAdminPanel()" class="text-xs bg-slate-200 hover:bg-slate-300 px-3 py-1 rounded-lg text-slate-700 font-bold">Pasaporta Dön</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200">
+          <span class="text-slate-500 text-[10px] font-bold uppercase block mb-1">Kayıtlı Katılımcı</span>
+          <span id="statAttendees" class="text-xl font-black text-slate-800 block">0</span>
+          <span class="text-[9px] text-slate-400 font-medium">Bulutta kayıtlı</span>
+        </div>
+        <div class="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200">
+          <span class="text-slate-500 text-[10px] font-bold uppercase block mb-1">Toplam Kaşe</span>
+          <span id="statStamps" class="text-xl font-black text-slate-800 block">0</span>
+          <span class="text-[9px] text-slate-400 font-medium">Canlı okutulan</span>
+        </div>
+        <div class="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200">
+          <span class="text-slate-500 text-[10px] font-bold uppercase block mb-1">Tamamlayanlar</span>
+          <span id="statCompleted" class="text-xl font-black text-slate-800 block">0</span>
+          <span class="text-[9px] text-slate-400 font-medium">Sertifika hak eden</span>
+        </div>
+        <div class="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200">
+          <span class="text-slate-500 text-[10px] font-bold uppercase block mb-1">Şüpheli / Hızlı</span>
+          <span id="statSuspicious" class="text-xl font-black text-rose-600 block">0</span>
+          <span class="text-[9px] text-slate-400 font-medium">< 30 sn aralıklar</span>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-3 shadow-sm border border-slate-200 space-y-2">
+        <button onclick="exportToCSV()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-sm">
+          <span>İmza Listesi İle Çapraz Kontrol (CSV İndir)</span>
+        </button>
+        <button onclick="openPrintQRCodesModal()" class="w-full bg-[#004b87] hover:bg-[#003865] text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-sm">
+          <span>Masa QR Kodlarını Otomatik Oluştur & Yazdır</span>
+        </button>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+        <h3 class="text-xs font-black text-slate-800 uppercase mb-2">En Çok Ziyaret Edilen Stantlar</h3>
+        <div id="companyLeaderboard" class="space-y-1.5"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- KAMERA QR MODAL -->
+  <div id="scannerModal" class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-4 shadow-2xl space-y-3">
+      <div class="flex justify-between items-center px-1">
+        <h3 class="text-xs font-black text-slate-800">Masadaki QR Kodu Okutun</h3>
+        <button onclick="stopCameraScanner()" class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold">&times;</button>
+      </div>
+      <div class="relative bg-black rounded-2xl overflow-hidden min-h-[260px] flex items-center justify-center border-2 border-slate-200">
+        <div id="reader" class="w-full"></div>
+      </div>
+      <p class="text-[10px] text-center text-slate-500 font-medium">QR kod tespit edildiğinde kaşe otomatik basılacaktır.</p>
+    </div>
+  </div>
+
+  <!-- BASKI MODALI -->
+  <div id="printQRModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-xl w-full max-h-[85vh] flex flex-col p-5 shadow-2xl">
+      <div class="flex justify-between items-center pb-3 border-b border-slate-200">
+        <h3 class="text-sm font-black text-slate-800">Masa QR Kodları (Otomatik)</h3>
+        <button onclick="closePrintQRCodesModal()" class="text-slate-400 hover:text-slate-800 font-bold text-xl">&times;</button>
+      </div>
+      <div id="qrPrintArea" class="overflow-y-auto py-4 grid grid-cols-2 gap-3 text-center"></div>
+      <div class="pt-3 border-t border-slate-200 flex space-x-2">
+        <button onclick="window.print()" class="flex-1 bg-[#004b87] text-white font-bold py-2 rounded-xl text-xs">🖨️ Sayfayı Yazdır</button>
+        <button onclick="closePrintQRCodesModal()" class="bg-slate-100 text-slate-700 font-bold px-4 py-2 rounded-xl text-xs">Kapat</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SERTİFİKA MODALI -->
+  <div id="certModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white text-slate-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl relative border-4 border-[#ffb81c]">
+      <button onclick="closeCertModal()" class="absolute top-3 right-3 text-slate-400 hover:text-slate-800 font-bold text-lg">&times;</button>
+      <div class="border-2 border-dashed border-[#004b87] p-5 text-center space-y-2.5 rounded-2xl">
+        <span class="text-[10px] font-black text-[#004b87] tracking-widest block">ASHRAE TURKISH CHAPTER</span>
+        <h2 class="text-base font-black text-slate-900 uppercase">KATILIM SERTİFİKASI</h2>
+        <p class="text-[10px] text-slate-500 italic">Tüm stantları başarıyla ziyaret eden,</p>
+        <div class="text-sm font-black text-[#003865] border-b-2 border-[#ffb81c] pb-1 mx-2" id="certName">Katılımcı</div>
+        <p class="text-[9px] text-slate-400">adına onaylanmıştır.</p>
+      </div>
+      <div class="mt-4 flex space-x-2">
+        <button onclick="window.print()" class="flex-1 bg-[#004b87] text-white font-bold py-2 rounded-xl text-xs">Yazdır / PDF</button>
+        <button onclick="closeCertModal()" class="bg-slate-100 text-slate-700 font-bold px-3 py-2 rounded-xl text-xs">Kapat</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- SUPABASE BULUT BAĞLANTISI ---
+    const SUPABASE_URL = "https://oijszhgcthnnayxotwbd.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_BIsQIDCOzJRtWcseBuFRYw_nqge05gv";
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // Fuar Firmaları
+    const BOOTHS = [
+      { id: "daikin", name: "Daikin Türkiye", category: "İklimlendirme", boothNo: "A-01" },
+      { id: "alarko", name: "Alarko Carrier", category: "HVAC & Pompa", boothNo: "A-02" },
+      { id: "form", name: "Form Endüstri", category: "Merkezi Soğutma", boothNo: "B-01" },
+      { id: "systemair", name: "Systemair HSK", category: "Havalandırma", boothNo: "B-02" },
+      { id: "danfoss", name: "Danfoss", category: "Otomasyon & Vana", boothNo: "C-01" },
+      { id: "friterm", name: "Friterm", category: "Isı Eşanjörleri", boothNo: "C-02" },
+      { id: "trox", name: "Trox Turkey", category: "Hava Dağıtım", boothNo: "D-01" },
+      { id: "wiloturkey", name: "Wilo Türkiye", category: "Pompa Sistemleri", boothNo: "D-02" }
+    ];
+
+    let currentUser = null;
+    let allAttendeesCloud = [];
+    let html5QrCode = null;
+    let adminClickCount = 0;
+    let adminClickTimer = null;
+
+    function playStampSound() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(140, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.12);
+        gain.gain.setValueAtTime(1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.12);
+      } catch (e) {}
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      checkSavedSession();
+      checkURLParameters();
+    });
+
+    function checkSavedSession() {
+      const saved = localStorage.getItem("ashrae_active_user");
+      if (saved) {
+        currentUser = JSON.parse(saved);
+        showCoverUI();
+        syncWithDatabase(); // Arka planda bulutla senkronize et
+      }
+    }
+
+    async function syncWithDatabase() {
+      if (!currentUser || !currentUser.email) return;
+      try {
+        const { data, error } = await db.from('attendees').select('*').eq('email', currentUser.email).single();
+        if (data) {
+          currentUser.stamps = data.stamps || [];
+          currentUser.firstStampAt = data.first_stamp_at;
+          currentUser.lastStampAt = data.last_stamp_at;
+          localStorage.setItem("ashrae_active_user", JSON.stringify(currentUser));
+          updateProgress();
+        }
+      } catch (e) {}
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      const btn = document.getElementById("regSubmitBtn");
+      btn.innerText = "Kayıt Yapılıyor...";
+      btn.disabled = true;
+
+      const name = document.getElementById("regName").value.trim();
+      const email = document.getElementById("regEmail").value.trim().toLowerCase();
+      const org = document.getElementById("regOrg").value.trim();
+
+      try {
+        // 1. Önce bulutta bu e-posta var mı bak
+        const { data: existing } = await db.from('attendees').select('*').eq('email', email).maybeSingle();
+
+        if (existing) {
+          currentUser = {
+            id: existing.id,
+            name: existing.name,
+            email: existing.email,
+            org: existing.org,
+            stamps: existing.stamps || [],
+            firstStampAt: existing.first_stamp_at,
+            lastStampAt: existing.last_stamp_at
+          };
+        } else {
+          // 2. Yoksa Supabase'e yeni kayıt aç
+          const newAttendee = {
+            name,
+            email,
+            org,
+            stamps: [],
+            first_stamp_at: null,
+            last_stamp_at: null
+          };
+
+          const { data, error } = await db.from('attendees').insert([newAttendee]).select().single();
+          if (error) throw error;
+
+          currentUser = {
+            id: data.id,
+            name: data.name,
+            email: data.email,
+            org: data.org,
+            stamps: [],
+            firstStampAt: null,
+            lastStampAt: null
+          };
+        }
+
+        localStorage.setItem("ashrae_active_user", JSON.stringify(currentUser));
+        showCoverUI();
+      } catch (err) {
+        alert("Bağlantı hatası: " + (err.message || "Lütfen tekrar deneyiniz."));
+      } finally {
+        btn.innerText = "Pasaportu Başlat";
+        btn.disabled = false;
+      }
+    }
+
+    async function saveStampToCloud() {
+      if (!currentUser) return;
+      localStorage.setItem("ashrae_active_user", JSON.stringify(currentUser));
+
+      try {
+        await db.from('attendees').update({
+          stamps: currentUser.stamps,
+          first_stamp_at: currentUser.firstStampAt,
+          last_stamp_at: currentUser.lastStampAt
+        }).eq('email', currentUser.email);
+      } catch (e) {
+        console.error("Buluta kaydedilemedi, yerelde saklandı.", e);
+      }
+    }
+
+    function showCoverUI() {
+      document.getElementById("authSection").classList.add("hidden");
+      document.getElementById("coverSection").classList.remove("hidden");
+      document.getElementById("passportSection").classList.add("hidden");
+      document.getElementById("userBadge").classList.remove("hidden");
+      document.getElementById("userNameDisplay").innerText = currentUser.name;
+      document.getElementById("coverUserName").innerText = currentUser.name;
+      document.getElementById("coverUserOrg").innerText = currentUser.org || "Ziyaretçi";
+    }
+
+    function openPassportPages() {
+      document.getElementById("coverSection").classList.add("hidden");
+      document.getElementById("passportSection").classList.remove("hidden");
+      renderPassportGrid();
+      updateProgress();
+    }
+
+    function renderPassportGrid() {
+      const grid = document.getElementById("boothGrid");
+      grid.innerHTML = "";
+
+      BOOTHS.forEach((booth) => {
+        const stampedRecord = currentUser.stamps.find(s => s.boothId === booth.id);
+        const isStamped = !!stampedRecord;
+
+        const card = document.createElement("div");
+        card.className = `relative h-28 rounded-2xl border transition-all p-3 flex flex-col justify-between overflow-hidden shadow-sm select-none ${
+          isStamped ? "bg-white border-[#004b87]" : "bg-white/80 border-slate-200"
+        }`;
+
+        const legoDots = `
+          <div class="absolute top-2 left-2 flex space-x-1.5 opacity-60">
+            <div class="w-2.5 h-2.5 rounded-full lego-stud-light"></div>
+            <div class="w-2.5 h-2.5 rounded-full lego-stud-light"></div>
+          </div>
+        `;
+
+        const stampElement = isStamped ? `
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div class="animate-stamp border-2 border-[#004b87] rounded-xl px-2 py-1 text-center bg-white/95 backdrop-blur-xs transform -rotate-6 shadow-md">
+              <span class="text-[8px] font-black text-[#004b87] uppercase block tracking-wider">ZİYARET EDİLDİ</span>
+              <span class="text-[7px] text-slate-500 font-mono">${new Date(stampedRecord.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            </div>
+          </div>
+        ` : `
+          <div class="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
+            <svg class="w-8 h-8 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+          </div>
+        `;
+
+        card.innerHTML = `
+          ${legoDots}
+          <div class="mt-2">
+            <span class="text-[9px] font-bold text-slate-400 block">${booth.category}</span>
+            <h4 class="text-xs font-black text-slate-800 truncate">${booth.name}</h4>
+          </div>
+          <div class="flex justify-between items-end">
+            <span class="text-[8px] text-slate-400 font-mono">${booth.boothNo}</span>
+            <span class="text-[9px] ${isStamped ? 'text-emerald-600 font-bold' : 'text-slate-400'}">${isStamped ? 'Damgalandı ✓' : 'QR Bekliyor'}</span>
+          </div>
+          ${stampElement}
+        `;
+
+        card.onclick = () => {
+          if (!isStamped) {
+            alert(`⚠️ Bu kart elle damgalanamaz. Lütfen üstteki "QR Okut" butonuyla masadaki kodu taratın.`);
+          }
+        };
+
+        grid.appendChild(card);
+      });
+    }
+
+    function startCameraScanner() {
+      document.getElementById("scannerModal").classList.remove("hidden");
+      html5QrCode = new Html5Qrcode("reader");
+      const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+
+      html5QrCode.start(
+        { facingMode: "environment" },
+        config,
+        (decodedText) => {
+          handleScannedData(decodedText);
+          stopCameraScanner();
+        },
+        (errorMessage) => {}
+      ).catch((err) => {
+        alert("Kameraya erişilemedi. Lütfen tarayıcınızdan kamera izni veriniz.");
+        stopCameraScanner();
+      });
+    }
+
+    function stopCameraScanner() {
+      if (html5QrCode) {
+        html5QrCode.stop().then(() => {
+          html5QrCode.clear();
+          document.getElementById("scannerModal").classList.add("hidden");
+        }).catch(() => {
+          document.getElementById("scannerModal").classList.add("hidden");
+        });
+      } else {
+        document.getElementById("scannerModal").classList.add("hidden");
+      }
+    }
+
+    function handleScannedData(qrString) {
+      let boothId = null;
+      try {
+        if (qrString.includes("booth=")) {
+          const url = new URL(qrString);
+          boothId = url.searchParams.get("booth");
+        } else {
+          boothId = qrString.trim();
+        }
+      } catch (e) {
+        boothId = qrString.trim();
+      }
+
+      const matchedBooth = BOOTHS.find(b => b.id.toLowerCase() === (boothId || "").toLowerCase());
+      if (matchedBooth) {
+        applyStamp(matchedBooth.id);
+      } else {
+        alert("Geçersiz QR kod! Bu etkinlik alanına ait bir stant QR'ı değil.");
+      }
+    }
+
+    async function applyStamp(boothId) {
+      if (!currentUser) return;
+
+      const already = currentUser.stamps.find(s => s.boothId === boothId);
+      if (already) {
+        alert("Bu firmanın kaşesini zaten aldınız!");
+        return;
+      }
+
+      const now = Date.now();
+      if (!currentUser.firstStampAt) currentUser.firstStampAt = now;
+      currentUser.lastStampAt = now;
+
+      currentUser.stamps.push({ boothId, timestamp: now });
+      playStampSound();
+      renderPassportGrid();
+      updateProgress();
+
+      // Buluta anında kaydet
+      await saveStampToCloud();
+
+      confetti({ particleCount: 35, spread: 50, origin: { y: 0.8 } });
+      const b = BOOTHS.find(x => x.id === boothId);
+      alert(`Harika! ${b ? b.name : ''} kaşesi pasaportunuza vuruldu!`);
+    }
+
+    function updateProgress() {
+      const count = currentUser.stamps.length;
+      const total = BOOTHS.length;
+      document.getElementById("stampScoreDisplay").innerText = `${count} / ${total} Kaşe`;
+      document.getElementById("progressText").innerText = `${count} / ${total} stant ziyaret edildi`;
+
+      if (count === total) {
+        document.getElementById("certCard").classList.remove("hidden");
+        confetti({ particleCount: 100, spread: 80 });
+      }
+    }
+
+    function checkURLParameters() {
+      const params = new URLSearchParams(window.location.search);
+      const boothParam = params.get("booth");
+      if (boothParam && BOOTHS.some(b => b.id === boothParam)) {
+        if (currentUser) {
+          applyStamp(boothParam);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+    }
+
+    // --- GİZLİ YÖNETİCİ GİRİŞİ: 3 TIK + 1908 PIN ---
+    function handleAdminTriggerClick() {
+      adminClickCount++;
+      clearTimeout(adminClickTimer);
+      adminClickTimer = setTimeout(() => { adminClickCount = 0; }, 1000);
+
+      if (adminClickCount === 3) {
+        adminClickCount = 0;
+        const pin = prompt("Yönetici PIN kodunu giriniz:");
+        if (pin === "1908") {
+          document.getElementById("authSection").classList.add("hidden");
+          document.getElementById("coverSection").classList.add("hidden");
+          document.getElementById("passportSection").classList.add("hidden");
+          document.getElementById("adminSection").classList.remove("hidden");
+          loadAdminStats();
+        } else if (pin !== null) {
+          alert("Hatalı PIN!");
+        }
+      }
+    }
+
+    function closeAdminPanel() {
+      document.getElementById("adminSection").classList.add("hidden");
+      if (currentUser) {
+        document.getElementById("passportSection").classList.remove("hidden");
+      } else {
+        document.getElementById("authSection").classList.remove("hidden");
+      }
+    }
+
+    // --- CANLI BULUT VERİSİNİ ÇEKME (250 KİŞİ ANALİTİĞİ) ---
+    async function loadAdminStats() {
+      try {
+        const { data, error } = await db.from('attendees').select('*');
+        if (error) throw error;
+        allAttendeesCloud = data || [];
+      } catch (e) {
+        console.error("Bulut verisi çekilemedi:", e);
+      }
+
+      const counts = {};
+      BOOTHS.forEach(b => counts[b.id] = 0);
+
+      let totalStampsCount = 0;
+      let completedCount = 0;
+      let suspiciousCount = 0;
+
+      allAttendeesCloud.forEach(att => {
+        const stamps = att.stamps || [];
+        totalStampsCount += stamps.length;
+        if (stamps.length === BOOTHS.length) completedCount++;
+
+        if (stamps.length > 1 && att.first_stamp_at && att.last_stamp_at) {
+          const diffSec = (att.last_stamp_at - att.first_stamp_at) / 1000;
+          if ((diffSec / stamps.length) < 30) suspiciousCount++;
+        }
+
+        stamps.forEach(s => {
+          if (counts[s.boothId] !== undefined) counts[s.boothId]++;
+        });
+      });
+
+      document.getElementById("statAttendees").innerText = allAttendeesCloud.length;
+      document.getElementById("statStamps").innerText = totalStampsCount;
+      document.getElementById("statCompleted").innerText = completedCount;
+      document.getElementById("statSuspicious").innerText = suspiciousCount;
+
+      const sortedBooths = [...BOOTHS].sort((a,b) => counts[b.id] - counts[a.id]);
+      const lbDiv = document.getElementById("companyLeaderboard");
+      lbDiv.innerHTML = "";
+
+      sortedBooths.forEach((b, idx) => {
+        const visitCount = counts[b.id];
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between text-xs bg-slate-50 p-2 rounded-xl border border-slate-200";
+        row.innerHTML = `
+          <div class="flex items-center space-x-2">
+            <span class="w-4 font-black ${idx < 3 ? 'text-amber-500' : 'text-slate-400'}">#${idx+1}</span>
+            <span class="text-slate-800 font-bold">${b.name} <span class="text-[10px] text-slate-400 font-normal">(${b.boothNo})</span></span>
+          </div>
+          <span class="bg-white text-[#004b87] border border-slate-200 px-2 py-0.5 rounded-lg font-black">${visitCount} ziyaret</span>
+        `;
+        lbDiv.appendChild(row);
+      });
+    }
+
+    function openPrintQRCodesModal() {
+      const area = document.getElementById("qrPrintArea");
+      area.innerHTML = "";
+      const baseUrl = window.location.origin + window.location.pathname;
+
+      BOOTHS.forEach((booth) => {
+        const card = document.createElement("div");
+        card.className = "border-2 border-dashed border-slate-300 rounded-2xl p-3 flex flex-col items-center bg-white";
+        
+        const qrContainer = document.createElement("div");
+        qrContainer.className = "my-2 p-1 bg-white border border-slate-200 rounded-lg";
+        const fullUrl = `${baseUrl}?booth=${booth.id}`;
+        
+        new QRCode(qrContainer, {
+          text: fullUrl,
+          width: 110,
+          height: 110,
+          correctLevel: QRCode.CorrectLevel.M
+        });
+
+        card.innerHTML = `
+          <span class="text-[9px] font-bold text-slate-400">${booth.boothNo}</span>
+          <h4 class="text-xs font-black text-slate-800 truncate">${booth.name}</h4>
+        `;
+        card.appendChild(qrContainer);
+
+        const subText = document.createElement("span");
+        subText.className = "text-[8px] text-slate-400 font-mono";
+        subText.innerText = "Kameranızla Okutunuz";
+        card.appendChild(subText);
+
+        area.appendChild(card);
+      });
+
+      document.getElementById("printQRModal").classList.remove("hidden");
+    }
+
+    function closePrintQRCodesModal() {
+      document.getElementById("printQRModal").classList.add("hidden");
+    }
+
+    function exportToCSV() {
+      let csv = "Ad Soyad,E-posta,Kurum,Kase Sayisi,Ilk Kase,Son Kase\n";
+      allAttendeesCloud.forEach(a => {
+        const first = a.first_stamp_at ? new Date(a.first_stamp_at).toLocaleTimeString() : "-";
+        const last = a.last_stamp_at ? new Date(a.last_stamp_at).toLocaleTimeString() : "-";
+        const stampsCount = (a.stamps || []).length;
+        csv += `"${a.name}","${a.email}","${a.org || ''}",${stampsCount},"${first}","${last}"\n`;
+      });
+
+      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", "ASHRAE_Katilimci_Analizi.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function showCertificateModal() {
+      document.getElementById("certName").innerText = currentUser ? currentUser.name : "Katılımcı";
+      document.getElementById("certModal").classList.remove("hidden");
+    }
+    function closeCertModal() {
+      document.getElementById("certModal").classList.add("hidden");
+    }
+  </script>
+</body>
+</html>
